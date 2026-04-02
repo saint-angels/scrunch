@@ -251,6 +251,8 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
 	var toggleBtn widget.Clickable
 	var ops op.Ops
+	pending := false
+	lastStanding := false
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -268,12 +270,19 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 			gtx := app.NewContext(&ops, e)
 			standing := state.IsStanding(*userName)
 
+			// Clear pending when server confirms the state change
+			if standing != lastStanding {
+				pending = false
+				lastStanding = standing
+			}
+
 			cs := sittingColors
 			if standing {
 				cs = standingColors
 			}
 
-			if toggleBtn.Clicked(gtx) {
+			if toggleBtn.Clicked(gtx) && !pending {
+				pending = true
 				var msg map[string]any
 				if standing {
 					msg = map[string]any{"type": "SIT", "user": *userName}
@@ -341,8 +350,13 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 								if standing {
 									label = "SIT DOWN"
 								}
+								btnFg := cs.fg
+								if pending {
+									label = "..."
+									btnFg = cs.dim
+								}
 								return layout.Inset{Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return borderedButton(gtx, th, &toggleBtn, label, cs.fg, cs.bg)
+									return borderedButton(gtx, th, &toggleBtn, label, btnFg, cs.bg)
 								})
 							}),
 							// Divider
