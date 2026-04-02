@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"image"
 	"image/color"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
-
-	"image"
-	"strings"
 
 	"gioui.org/app"
 	"gioui.org/font"
@@ -24,6 +23,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
+	"github.com/gen2brain/beeep"
 	"github.com/gorilla/websocket"
 )
 
@@ -60,7 +60,11 @@ func (s *State) IsConnected() bool {
 	return s.connected
 }
 
-func (s *State) Apply(msg ServerMsg) {
+func notify(title, body string) {
+	beeep.Notify(title, body, "")
+}
+
+func (s *State) Apply(msg ServerMsg, self string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -70,8 +74,20 @@ func (s *State) Apply(msg ServerMsg) {
 	case "STAND_STARTED":
 		s.standings = filterUser(s.standings, msg.User)
 		s.standings = append(s.standings, Standing{User: msg.User, StartedAt: msg.StartedAt, EndsAt: msg.EndsAt})
+		if msg.User != self {
+			notify("Scrunch", msg.User+" stood up")
+		}
 	case "STAND_ENDED":
 		s.standings = filterUser(s.standings, msg.User)
+		if msg.User != self {
+			notify("Scrunch", msg.User+" sat down")
+		}
+	case "TIME_UP":
+		if msg.User == self {
+			notify("Scrunch", "Your standing time is up!")
+		} else {
+			notify("Scrunch", msg.User+"'s time is up")
+		}
 	}
 }
 
@@ -171,7 +187,7 @@ func wsLoop(addr string, state *State, sendCh chan []byte) {
 			}
 			var msg ServerMsg
 			if json.Unmarshal(raw, &msg) == nil {
-				state.Apply(msg)
+				state.Apply(msg, *userName)
 			}
 		}
 
