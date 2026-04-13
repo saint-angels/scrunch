@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -120,18 +121,21 @@ func filterUser(standings []Standing, user string) []Standing {
 	return out
 }
 
+func defaultUser() string {
+	if runtime.GOOS == "windows" {
+		return "karen"
+	}
+	return "misha"
+}
+
 var (
-	userName = flag.String("user", "", "your display name")
-	serverAddr = flag.String("server", "localhost:9000", "server address")
+	userName   = flag.String("user", defaultUser(), "your display name")
+	serverAddr = flag.String("server", "admins-mac-mini:9000", "server address")
 	duration   = flag.Int("duration", 2700, "standing duration in seconds")
 )
 
 func main() {
 	flag.Parse()
-	if *userName == "" {
-		fmt.Fprintln(os.Stderr, "usage: scrunch-client -user <name>")
-		os.Exit(1)
-	}
 
 	state := &State{}
 	sendCh := make(chan []byte, 16)
