@@ -48,3 +48,22 @@ jobs:
             client/scrunch-client.exe
             server/scrunch-server.exe
 
+  release:
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          prerelease: true
+          files: |
+            scrunch-mac/client/scrunch-client-mac
+            scrunch-mac/server/scrunch-server-mac
+            scrunch-windows/client/scrunch-client.exe
+            scrunch-windows/server/scrunch-server.exe
+
