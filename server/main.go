@@ -94,6 +94,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			if msg.User == "" || msg.Duration == 0 {
 				continue
 			}
+			log.Printf("STAND user=%s duration=%d addr=%s", msg.User, msg.Duration, r.RemoteAddr)
 			st := s.room.Stand(msg.User, msg.Duration, func(user string) {
 				s.broadcast(OutMessage{Type: "TIME_UP", User: user})
 			})
@@ -103,6 +104,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			if msg.User == "" || !s.room.IsStanding(msg.User) {
 				continue
 			}
+			log.Printf("SIT user=%s addr=%s", msg.User, r.RemoteAddr)
 			s.room.Sit(msg.User)
 			s.broadcast(OutMessage{Type: "STAND_ENDED", User: msg.User, Reason: "manual"})
 		}
