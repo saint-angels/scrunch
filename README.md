@@ -36,6 +36,12 @@ cd client
 go build -o scrunch-client .
 ```
 
+On Windows, add `-ldflags "-H windowsgui"` to suppress the console window:
+
+```bash
+go build -ldflags "-H windowsgui" -o scrunch-client.exe .
+```
+
 ### Run
 
 ```bash

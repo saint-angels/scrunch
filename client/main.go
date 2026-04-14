@@ -146,6 +146,8 @@ func main() {
 		w := new(app.Window)
 		w.Option(app.Title("Scrunch - " + *userName))
 		w.Option(app.Size(unit.Dp(240), unit.Dp(220)))
+		w.Option(app.MaxSize(unit.Dp(240), unit.Dp(220)))
+		w.Option(app.MinSize(unit.Dp(240), unit.Dp(220)))
 
 		if err := runUI(w, state, sendCh); err != nil {
 			log.Fatal(err)
@@ -201,69 +203,92 @@ func wsLoop(addr string, state *State, sendCh chan []byte) {
 	}
 }
 
-type colorScheme struct {
-	bg  color.NRGBA
-	fg  color.NRGBA
-	dim color.NRGBA
-}
-
+// Win98 color palette
 var (
-	sittingColors = colorScheme{
-		bg:  color.NRGBA{R: 0x0A, G: 0x0A, B: 0x1A, A: 255},
-		fg:  color.NRGBA{R: 0x66, G: 0x88, B: 0xAA, A: 255},
-		dim: color.NRGBA{R: 0x66, G: 0x88, B: 0xAA, A: 128},
-	}
-	standingColors = colorScheme{
-		bg:  color.NRGBA{R: 0x00, G: 0x18, B: 0x30, A: 255},
-		fg:  color.NRGBA{R: 0x00, G: 0xDD, B: 0xFF, A: 255},
-		dim: color.NRGBA{R: 0x00, G: 0xDD, B: 0xFF, A: 128},
-	}
+	colBg         = color.NRGBA{R: 0xD4, G: 0xD0, B: 0xC8, A: 255}
+	colText       = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 255}
+	colDim        = color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 255}
+	colHighlight  = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 255}
+	colShadow     = color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 255}
+	colDarkShadow = color.NRGBA{R: 0x40, G: 0x40, B: 0x40, A: 255}
+	colSunkenBg   = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 255}
 )
 
-func monoLabel(th *material.Theme, size unit.Sp, txt string, col color.NRGBA) material.LabelStyle {
-	l := material.Label(th, size, strings.ToUpper(txt))
-	l.Color = col
-	l.Font.Typeface = "Go Mono"
-	l.Font.Weight = font.Bold
-	return l
+func drawEdge(ops *op.Ops, min, max image.Point, col color.NRGBA) {
+	s := clip.Rect{Min: min, Max: max}.Push(ops)
+	paint.ColorOp{Color: col}.Add(ops)
+	paint.PaintOp{}.Add(ops)
+	s.Pop()
 }
 
-func drawDivider(gtx layout.Context, col color.NRGBA) layout.Dimensions {
-	height := gtx.Dp(unit.Dp(1))
-	if height < 1 {
-		height = 1
-	}
-	sz := image.Point{X: gtx.Constraints.Max.X, Y: height}
-	defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-	paint.ColorOp{Color: col}.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
+func drawRaisedBorder(ops *op.Ops, sz image.Point) {
+	drawEdge(ops, image.Point{}, image.Point{X: sz.X, Y: 1}, colHighlight)
+	drawEdge(ops, image.Point{}, image.Point{X: 1, Y: sz.Y}, colHighlight)
+	drawEdge(ops, image.Point{Y: sz.Y - 1}, sz, colDarkShadow)
+	drawEdge(ops, image.Point{X: sz.X - 1}, sz, colDarkShadow)
+}
+
+func drawSunkenBorder(ops *op.Ops, sz image.Point) {
+	drawEdge(ops, image.Point{}, image.Point{X: sz.X, Y: 1}, colShadow)
+	drawEdge(ops, image.Point{}, image.Point{X: 1, Y: sz.Y}, colShadow)
+	drawEdge(ops, image.Point{Y: sz.Y - 1}, sz, colHighlight)
+	drawEdge(ops, image.Point{X: sz.X - 1}, sz, colHighlight)
+}
+
+func drawGroove(gtx layout.Context) layout.Dimensions {
+	sz := image.Point{X: gtx.Constraints.Max.X, Y: 2}
+	drawEdge(gtx.Ops, image.Point{}, image.Point{X: sz.X, Y: 1}, colShadow)
+	drawEdge(gtx.Ops, image.Point{Y: 1}, sz, colHighlight)
 	return layout.Dimensions{Size: sz}
 }
 
-func borderedButton(gtx layout.Context, th *material.Theme, btn *widget.Clickable, label string, fg, bg color.NRGBA) layout.Dimensions {
+func sunkenPanel(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	m := op.Record(gtx.Ops)
+	dims := layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(4), Right: unit.Dp(4)}.Layout(gtx, w)
+	call := m.Stop()
+
+	sz := dims.Size
+	s := clip.Rect{Max: sz}.Push(gtx.Ops)
+	paint.ColorOp{Color: colSunkenBg}.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+	s.Pop()
+	drawSunkenBorder(gtx.Ops, sz)
+	call.Add(gtx.Ops)
+	return dims
+}
+
+func win98Button(gtx layout.Context, th *material.Theme, btn *widget.Clickable, label string, disabled bool) layout.Dimensions {
 	return btn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(16)}.Layout(gtx,
+		m := op.Record(gtx.Ops)
+		dims := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(16), Right: unit.Dp(16)}.Layout(gtx,
 			func(gtx layout.Context) layout.Dimensions {
-				l := monoLabel(th, unit.Sp(10), label, fg)
-				dims := l.Layout(gtx)
-
-				// Draw border around the full button area
-				borderSize := image.Point{
-					X: dims.Size.X + gtx.Dp(unit.Dp(32)),
-					Y: dims.Size.Y + gtx.Dp(unit.Dp(12)),
+				col := colText
+				if disabled {
+					col = colDim
 				}
-				borderRect := clip.Stroke{
-					Path:  clip.Rect{Max: borderSize}.Path(),
-					Width: float32(gtx.Dp(unit.Dp(1))),
-				}.Op().Push(gtx.Ops)
-				paint.ColorOp{Color: fg}.Add(gtx.Ops)
-				paint.PaintOp{}.Add(gtx.Ops)
-				borderRect.Pop()
+				l := material.Label(th, unit.Sp(11), strings.ToUpper(label))
+				l.Color = col
+				l.Font.Weight = font.Bold
+				return l.Layout(gtx)
+			})
+		call := m.Stop()
 
-				return dims
-			},
-		)
+		sz := dims.Size
+		s := clip.Rect{Max: sz}.Push(gtx.Ops)
+		paint.ColorOp{Color: colBg}.Add(gtx.Ops)
+		paint.PaintOp{}.Add(gtx.Ops)
+		s.Pop()
+		drawRaisedBorder(gtx.Ops, sz)
+		call.Add(gtx.Ops)
+		return dims
 	})
+}
+
+func w98Label(th *material.Theme, size unit.Sp, txt string, col color.NRGBA) material.LabelStyle {
+	l := material.Label(th, size, strings.ToUpper(txt))
+	l.Color = col
+	l.Font.Weight = font.Bold
+	return l
 }
 
 func runUI(w *app.Window, state *State, sendCh chan []byte) error {
@@ -294,11 +319,6 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 			if standing != lastStanding {
 				pending = false
 				lastStanding = standing
-			}
-
-			cs := sittingColors
-			if standing {
-				cs = standingColors
 			}
 
 			if toggleBtn.Clicked(gtx) && !pending {
@@ -333,7 +353,7 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 					sz := gtx.Constraints.Max
 					defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-					paint.ColorOp{Color: cs.bg}.Add(gtx.Ops)
+					paint.ColorOp{Color: colBg}.Add(gtx.Ops)
 					paint.PaintOp{}.Add(gtx.Ops)
 					return layout.Dimensions{Size: sz}
 				}),
@@ -343,7 +363,7 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							// Username
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								l := monoLabel(th, unit.Sp(11), *userName, cs.fg)
+								l := w98Label(th, unit.Sp(11), *userName, colText)
 								return l.Layout(gtx)
 							}),
 							// State label
@@ -352,16 +372,19 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 								if standing {
 									stateStr = "STANDING"
 								}
-								l := monoLabel(th, unit.Sp(9), stateStr, cs.dim)
+								l := w98Label(th, unit.Sp(9), stateStr, colDim)
 								return layout.Inset{Top: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									return l.Layout(gtx)
 								})
 							}),
 							// Timer
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								l := monoLabel(th, unit.Sp(36), myTime, cs.fg)
 								return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return l.Layout(gtx)
+									return sunkenPanel(gtx, func(gtx layout.Context) layout.Dimensions {
+										l := w98Label(th, unit.Sp(36), myTime, colText)
+										l.Font.Typeface = "Go Mono"
+										return l.Layout(gtx)
+									})
 								})
 							}),
 							// Button
@@ -370,21 +393,17 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 								if standing {
 									label = "SIT DOWN"
 								}
-								btnFg := cs.fg
 								if pending {
 									label = "..."
-									btnFg = cs.dim
 								}
 								return layout.Inset{Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return borderedButton(gtx, th, &toggleBtn, label, btnFg, cs.bg)
+									return win98Button(gtx, th, &toggleBtn, label, pending)
 								})
 							}),
 							// Divider
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								divColor := cs.fg
-								divColor.A = 50
 								return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return drawDivider(gtx, divColor)
+									return drawGroove(gtx)
 								})
 							}),
 							// Others standing
@@ -405,10 +424,10 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 									return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										return layout.Flex{Spacing: layout.SpaceBetween}.Layout(gtx,
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return monoLabel(th, unit.Sp(9), s.User, cs.fg).Layout(gtx)
+												return w98Label(th, unit.Sp(9), s.User, colText).Layout(gtx)
 											}),
 											layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-												l := monoLabel(th, unit.Sp(9), timeStr, cs.dim)
+												l := w98Label(th, unit.Sp(9), timeStr, colDim)
 												l.Alignment = text.End
 												return l.Layout(gtx)
 											}),
@@ -423,11 +442,10 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 							// Connection status
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								statusStr := "DISCONNECTED"
-								statusColor := cs.dim
 								if state.IsConnected() {
 									statusStr = "CONNECTED"
 								}
-								l := monoLabel(th, unit.Sp(8), statusStr, statusColor)
+								l := w98Label(th, unit.Sp(8), statusStr, colDim)
 								l.Alignment = text.End
 								return l.Layout(gtx)
 							}),

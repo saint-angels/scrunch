@@ -15,10 +15,12 @@ jobs:
         working-directory: client
         run: |
           CGO_ENABLED=1 go build -o scrunch-client-mac .
+          chmod +x scrunch-client-mac
       - name: Build macOS server
         working-directory: server
         run: |
           go build -o scrunch-server-mac .
+          chmod +x scrunch-server-mac
       - uses: actions/upload-artifact@v4
         with:
           name: scrunch-mac
@@ -36,7 +38,7 @@ jobs:
       - name: Build Windows client
         working-directory: client
         run: |
-          go build -o scrunch-client.exe .
+          go build -ldflags "-H windowsgui" -o scrunch-client.exe .
       - name: Build Windows server
         working-directory: server
         run: |

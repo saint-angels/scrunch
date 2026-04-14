@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -18,13 +20,32 @@ type Server struct {
 	room    *Room
 	mu      sync.Mutex
 	clients map[*websocket.Conn]struct{}
+	logFile *os.File
 }
 
 func NewServer() *Server {
+	logPath := os.Getenv("LOG_FILE")
+	if logPath == "" {
+		logPath = "scrunch.log"
+	}
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("failed to open log file %s: %v", logPath, err)
+	}
 	return &Server{
 		room:    NewRoom(),
 		clients: make(map[*websocket.Conn]struct{}),
+		logFile: f,
 	}
+}
+
+func (s *Server) logEvent(event string, user string, extra string) {
+	line := fmt.Sprintf("%s %s user=%s", time.Now().UTC().Format(time.RFC3339), event, user)
+	if extra != "" {
+		line += " " + extra
+	}
+	line += "\n"
+	s.logFile.WriteString(line)
 }
 
 func (s *Server) broadcast(msg any) {
@@ -95,6 +116,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			log.Printf("STAND user=%s duration=%d addr=%s", msg.User, msg.Duration, r.RemoteAddr)
+			s.logEvent("STAND", msg.User, fmt.Sprintf("duration=%d", msg.Duration))
 			st := s.room.Stand(msg.User, msg.Duration, func(user string) {
 				s.broadcast(OutMessage{Type: "TIME_UP", User: user})
 			})
