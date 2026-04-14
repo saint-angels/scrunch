@@ -19,7 +19,7 @@ var upgrader = websocket.Upgrader{
 type Server struct {
 	room    *Room
 	mu      sync.Mutex
-	clients map[*websocket.Conn]struct{}
+	clients map[*websocket.Conn]string
 	logFile *os.File
 }
 
@@ -34,7 +34,7 @@ func NewServer() *Server {
 	}
 	return &Server{
 		room:    NewRoom(),
-		clients: make(map[*websocket.Conn]struct{}),
+		clients: make(map[*websocket.Conn]string),
 		logFile: f,
 	}
 }
@@ -59,14 +59,28 @@ func (s *Server) broadcast(msg any) {
 
 func (s *Server) addClient(c *websocket.Conn) {
 	s.mu.Lock()
-	s.clients[c] = struct{}{}
+	s.clients[c] = ""
 	s.mu.Unlock()
 }
 
-func (s *Server) removeClient(c *websocket.Conn) {
+func (s *Server) removeClient(c *websocket.Conn) string {
 	s.mu.Lock()
+	user := s.clients[c]
 	delete(s.clients, c)
 	s.mu.Unlock()
+	return user
+}
+
+func (s *Server) getUsers() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	users := make([]string, 0, len(s.clients))
+	for _, u := range s.clients {
+		if u != "" {
+			users = append(users, u)
+		}
+	}
+	return users
 }
 
 type InMessage struct {
@@ -82,6 +96,7 @@ type OutMessage struct {
 	EndsAt    int64      `json:"endsAt,omitempty"`
 	Reason    string     `json:"reason,omitempty"`
 	Standings []Standing `json:"standings,omitempty"`
+	Users     []string   `json:"users,omitempty"`
 }
 
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
@@ -93,9 +108,18 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	s.addClient(conn)
-	defer s.removeClient(conn)
+	defer func() {
+		user := s.removeClient(conn)
+		if user != "" {
+			if s.room.IsStanding(user) {
+				s.room.Sit(user)
+				s.broadcast(OutMessage{Type: "STAND_ENDED", User: user, Reason: "disconnect"})
+			}
+			s.broadcast(OutMessage{Type: "USER_LEFT", User: user, Users: s.getUsers()})
+		}
+	}()
 
-	sync := OutMessage{Type: "STATE_SYNC", Standings: s.room.GetStandings()}
+	sync := OutMessage{Type: "STATE_SYNC", Standings: s.room.GetStandings(), Users: s.getUsers()}
 	data, _ := json.Marshal(sync)
 	conn.WriteMessage(websocket.TextMessage, data)
 
@@ -111,6 +135,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 
 		switch msg.Type {
+		case "JOIN":
+			if msg.User == "" {
+				continue
+			}
+			s.mu.Lock()
+			s.clients[conn] = msg.User
+			s.mu.Unlock()
+			s.broadcast(OutMessage{Type: "USER_JOINED", User: msg.User, Users: s.getUsers()})
+
 		case "STAND":
 			if msg.User == "" || msg.Duration == 0 {
 				continue

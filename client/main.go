@@ -41,12 +41,14 @@ type ServerMsg struct {
 	EndsAt    int64      `json:"endsAt,omitempty"`
 	Reason    string     `json:"reason,omitempty"`
 	Standings []Standing `json:"standings,omitempty"`
+	Users     []string   `json:"users,omitempty"`
 }
 
 type State struct {
 	mu        sync.Mutex
 	connected bool
 	standings []Standing
+	users     []string
 }
 
 func (s *State) SetConnected(v bool) {
@@ -72,6 +74,11 @@ func (s *State) Apply(msg ServerMsg, self string) {
 	switch msg.Type {
 	case "STATE_SYNC":
 		s.standings = msg.Standings
+		s.users = msg.Users
+	case "USER_JOINED":
+		s.users = msg.Users
+	case "USER_LEFT":
+		s.users = msg.Users
 	case "STAND_STARTED":
 		s.standings = filterUser(s.standings, msg.User)
 		s.standings = append(s.standings, Standing{User: msg.User, StartedAt: msg.StartedAt, EndsAt: msg.EndsAt})
@@ -90,6 +97,14 @@ func (s *State) Apply(msg ServerMsg, self string) {
 			notify("Scrunch", msg.User+"'s time is up")
 		}
 	}
+}
+
+func (s *State) GetUsers() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.users))
+	copy(out, s.users)
+	return out
 }
 
 func (s *State) GetStandings() []Standing {
@@ -168,6 +183,10 @@ func wsLoop(addr string, state *State, sendCh chan []byte) {
 			continue
 		}
 		state.SetConnected(true)
+
+		// Send JOIN
+		join, _ := json.Marshal(map[string]any{"type": "JOIN", "user": *userName})
+		conn.WriteMessage(websocket.TextMessage, join)
 
 		// Writer goroutine
 		done := make(chan struct{})
@@ -406,28 +425,43 @@ func runUI(w *app.Window, state *State, sendCh chan []byte) error {
 									return drawGroove(gtx)
 								})
 							}),
-							// Others standing
+							// Other users
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								users := state.GetUsers()
 								standings := state.GetStandings()
-								if len(standings) == 0 {
+								standingMap := make(map[string]Standing)
+								for _, s := range standings {
+									standingMap[s.User] = s
+								}
+								var others []string
+								for _, u := range users {
+									if u != *userName {
+										others = append(others, u)
+									}
+								}
+								if len(others) == 0 {
 									return layout.Dimensions{}
 								}
 								list := layout.List{Axis: layout.Vertical}
-								return list.Layout(gtx, len(standings), func(gtx layout.Context, i int) layout.Dimensions {
-									s := standings[i]
-									elapsed := time.Since(time.UnixMilli(s.StartedAt))
-									if elapsed < 0 {
-										elapsed = 0
+								return list.Layout(gtx, len(others), func(gtx layout.Context, i int) layout.Dimensions {
+									u := others[i]
+									statusStr := "SITTING"
+									statusCol := colDim
+									if s, ok := standingMap[u]; ok {
+										elapsed := time.Since(time.UnixMilli(s.StartedAt))
+										if elapsed < 0 {
+											elapsed = 0
+										}
+										statusStr = fmt.Sprintf("%d:%02d", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
+										statusCol = colText
 									}
-									timeStr := fmt.Sprintf("%d:%02d", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
-
 									return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										return layout.Flex{Spacing: layout.SpaceBetween}.Layout(gtx,
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return w98Label(th, unit.Sp(9), s.User, colText).Layout(gtx)
+												return w98Label(th, unit.Sp(9), u, colText).Layout(gtx)
 											}),
 											layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-												l := w98Label(th, unit.Sp(9), timeStr, colDim)
+												l := w98Label(th, unit.Sp(9), statusStr, statusCol)
 												l.Alignment = text.End
 												return l.Layout(gtx)
 											}),
