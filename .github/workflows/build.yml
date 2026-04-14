@@ -21,12 +21,13 @@ jobs:
         run: |
           go build -o scrunch-server-mac .
           chmod +x scrunch-server-mac
+      - name: Package macOS binaries
+        run: |
+          tar czf scrunch-mac.tar.gz -C client scrunch-client-mac -C ../server scrunch-server-mac
       - uses: actions/upload-artifact@v4
         with:
           name: scrunch-mac
-          path: |
-            client/scrunch-client-mac
-            server/scrunch-server-mac
+          path: scrunch-mac.tar.gz
 
   build-windows:
     runs-on: windows-latest
@@ -64,8 +65,7 @@ jobs:
           name: Latest Build
           prerelease: true
           files: |
-            scrunch-mac/client/scrunch-client-mac
-            scrunch-mac/server/scrunch-server-mac
+            scrunch-mac/scrunch-mac.tar.gz
             scrunch-windows/client/scrunch-client.exe
             scrunch-windows/server/scrunch-server.exe
 
